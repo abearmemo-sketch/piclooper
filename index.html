@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>繪畫速寫輪播器</title>
+<style>
+  body { font-family: sans-serif; padding: 20px; background: #f0f0f0; }
+  #carousel { width: 300px; height: 300px; border: 2px solid #000; margin-bottom: 10px; display: flex; align-items: center; justify-content: center; background: #fff; }
+  #carousel img { max-width: 100%; max-height: 100%; }
+  .controls, .timing { display: flex; gap: 10px; margin-bottom: 10px; align-items: center; }
+  #timer { font-size: 24px; font-weight: bold; background: black; color: white; padding: 5px 10px; }
+  select, input[type=number] { width: 60px; }
+</style>
+</head>
+<body>
+
+<h2>繪畫速寫輪播器</h2>
+
+<div id="carousel">
+  <img id="currentImage" src="" alt="圖片">
+</div>
+
+<div id="timer">0</div>
+
+<div class="controls">
+  <button id="pauseBtn">暫停</button>
+  <button id="resumeBtn">繼續</button>
+  <button id="nextBtn">下一張</button>
+</div>
+
+<div class="timing">
+  <label>顯示: <input type="number" id="showTime" value="30">秒</label>
+  <label>隱藏: <input type="number" id="hideTime" value="20">秒</label>
+  <label>重複: <input type="number" id="repeatCount" value="3">次</label>
+</div>
+
+<div>
+  <label>選擇設定格:
+    <select id="slotSelect">
+      <option value="1">儲存1</option>
+      <option value="2">儲存2</option>
+      <option value="3">儲存3</option>
+      <option value="4">儲存4</option>
+      <option value="5">儲存5</option>
+      <option value="6">儲存6</option>
+      <option value="7">儲存7</option>
+    </select>
+  </label>
+  <button id="saveSlotBtn">儲存設定</button>
+</div>
+
+<script>
+let slots = {};
+let currentSlot = '1';
+let images = [];
+let currentIndex = 0;
+let repeatCount = 0;
+let timerInterval;
+let showTime = 30;
+let hideTime = 20;
+let repeatLimit = 3;
+let paused = false;
+
+// 裝置辨識
+function getDeviceKey() {
+  const ua = navigator.userAgent;
+  let device = "UnknownDevice";
+  if (/iPhone/.test(ua)) device = "iPhone";
+  else if (/iPad/.test(ua)) device = "iPad";
+  else if (/Android/.test(ua)) device = "Android";
+  let browser = "UnknownBrowser";
+  if (ua.includes("Brave")) browser = "Brave";
+  else if (ua.includes("Chrome")) browser = "Chrome";
+  else if (ua.includes("Safari")) browser = "Safari";
+  return `${device}_${browser}`;
+}
+
+// 載入 slot
+async function loadSlot(slotNum) {
+  const deviceKey = getDeviceKey();
+  const res = await fetch('/api/slots');
+  const data = await res.json();
+  slots = data.slots || {};
+  currentSlot = slotNum || data.lastUsedSlots[deviceKey] || '1';
+  const s = slots[currentSlot] || {images: [], showTime: 30, hideTime: 20, repeatCount:3};
+  images = s.images;
+  showTime = s.showTime;
+  hideTime = s.hideTime;
+  repeatLimit = s.repeatCount;
+  document.getElementById('showTime').value = showTime;
+  document.getElementById('hideTime').value = hideTime;
+  document.getElementById('repeatCount').value = repeatLimit;
+  startCarousel();
+}
+
+// 儲存 slot
+async function saveSlot(slotNum) {
+  const s = {
+    images: images,
+    showTime: parseInt(document.getElementById('showTime').value),
+    hideTime: parseInt(document.getElementById('hideTime').value),
+    repeatCount: parseInt(document.getElementById('repeatCount').value)
+  };
+  slots[slotNum] = s;
+  await fetch('/api/slots', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ deviceKey: getDeviceKey(), slotNum: slotNum, slotData: s })
+  });
+  currentSlot = slotNum;
+}
+
+// 輪播邏輯
+function startCarousel() {
+  if (timerInterval) clearInterval(timerInterval);
+  if (!images.length) return;
+  paused = false;
+  let phase = 'show';
+  let remaining = showTime;
+  document.getElementById('currentImage').src = images[currentIndex] || '';
+  document.getElementById('timer').textContent = remaining;
+
+  timerInterval = setInterval(() => {
+    if (paused) return;
+    remaining--;
+    document.getElementById('timer').textContent = remaining;
+    if (remaining<=0){
+      if (phase==='show'){
+        document.getElementById('currentImage').src='';
+        phase='hide';
+        remaining=hideTime;
+      } else {
+        repeatCount++;
+        if (repeatCount>=repeatLimit){
+          repeatCount=0;
+          currentIndex = (currentIndex+1)%images.length;
+        }
+        document.getElementById('currentImage').src=images[currentIndex] || '';
+        phase='show';
+        remaining=showTime;
+        new Audio('/alarm.ogg').play();
+      }
+    }
+  },1000);
+}
+
+// 控制按鈕
+document.getElementById('pauseBtn').addEventListener('click',()=>paused=true);
+document.getElementById('resumeBtn').addEventListener('click',()=>paused=false);
+document.getElementById('nextBtn').addEventListener('click',()=>{
+  currentIndex = (currentIndex+1)%images.length;
+  repeatCount=0;
+  document.getElementById('currentImage').src=images[currentIndex] || '';
+});
+
+// Slot選擇 & 儲存
+document.getElementById('slotSelect').addEventListener('change', e=>loadSlot(e.target.value));
+document.getElementById('saveSlotBtn').addEventListener('click', ()=>saveSlot(document.getElementById('slotSelect').value));
+
+// 初始載入
+loadSlot();
+</script>
+
+</body>
+</html>
